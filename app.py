@@ -32,16 +32,28 @@ st.set_page_config(
 
 
 # ================================================================
-# 2. LOAD ENVIRONMENT VARIABLES
+# 2. LOAD ENVIRONMENT VARIABLES & SECRETS
 # ================================================================
 
 BASE_DIR = Path(__file__).resolve().parent
 
 load_dotenv(BASE_DIR / ".env")
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+def get_secret(key: str, default: str = None) -> str:
+    """Retrieve secret from Streamlit secrets (Streamlit Cloud or .streamlit/secrets.toml)
+    or fall back to environment variables."""
+    try:
+        if key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.getenv(key, default)
+
+
+GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
+
+GEMINI_MODEL = get_secret("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
 
 # ================================================================
@@ -1648,10 +1660,17 @@ operations dashboard.
 @st.cache_resource
 def load_gemini_client():
 
-    if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY was not found in the .env file.")
+    api_key = get_secret("GEMINI_API_KEY") or GEMINI_API_KEY
 
-    return genai.Client(api_key=GEMINI_API_KEY)
+    if not api_key:
+        st.error(
+            "⚠️ **GEMINI_API_KEY missing!** Please add `GEMINI_API_KEY` to your Streamlit secrets:\n\n"
+            "- **Streamlit Cloud**: App Settings ➡️ Secrets ➡️ add `GEMINI_API_KEY = \"your_key\"`\n"
+            "- **Local Run**: Add it to `.streamlit/secrets.toml` or `.env`"
+        )
+        raise ValueError("GEMINI_API_KEY was not found in Streamlit secrets or .env file.")
+
+    return genai.Client(api_key=api_key)
 
 
 # ================================================================
@@ -1662,8 +1681,9 @@ def load_gemini_client():
 def generate_ai_decision_support(prompt):
 
     client = load_gemini_client()
+    model_name = get_secret("GEMINI_MODEL", GEMINI_MODEL) or "gemini-3.5-flash-lite"
 
-    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+    response = client.models.generate_content(model=model_name, contents=prompt)
 
     if not response.text:
         raise ValueError("Gemini returned an empty response.")
